@@ -306,6 +306,20 @@ def transform_invoice(inv):
     bill_addr = extract_address(inv.get("BillAddr"))
     ship_addr = extract_address(inv.get("ShipAddr"))
 
+    # ── FIX: QBO only returns HomeTotalAmt / HomeBalance for multi-currency
+    # transactions. For USD (home currency) invoices these fields are absent,
+    # which results in NULLs in Supabase. Queries like "home_balance > 0"
+    # then silently exclude every USD invoice (NULL > 0 → NULL → filtered out).
+    # Solution: fall back to the transaction-currency values, which are
+    # identical to home-currency values when the invoice IS in home currency.
+    home_total = inv.get("HomeTotalAmt")
+    if home_total is None:
+        home_total = inv.get("TotalAmt")
+
+    home_balance = inv.get("HomeBalance")
+    if home_balance is None:
+        home_balance = inv.get("Balance")
+
     return {
         "qbo_id": str(inv["Id"]),
         "doc_number": inv.get("DocNumber"),
@@ -315,8 +329,8 @@ def transform_invoice(inv):
         "total_amt": inv.get("TotalAmt"),
         "balance": inv.get("Balance"),
         "deposit": inv.get("Deposit"),
-        "home_total_amt": inv.get("HomeTotalAmt"),
-        "home_balance": inv.get("HomeBalance"),
+        "home_total_amt": home_total,       # ← was inv.get("HomeTotalAmt")
+        "home_balance": home_balance,        # ← was inv.get("HomeBalance")
         "customer_id": safe_get(inv, "CustomerRef", "value"),
         "customer_name": safe_get(inv, "CustomerRef", "name"),
         "bill_addr_line1": bill_addr.get("line1"),
@@ -357,6 +371,16 @@ def transform_invoice(inv):
 
 def transform_bill(bill):
     """Transform a QBO Bill object to a Supabase row."""
+
+    # ── FIX: Same home-currency NULL issue as invoices (see transform_invoice)
+    home_total = bill.get("HomeTotalAmt")
+    if home_total is None:
+        home_total = bill.get("TotalAmt")
+
+    home_balance = bill.get("HomeBalance")
+    if home_balance is None:
+        home_balance = bill.get("Balance")
+
     return {
         "qbo_id": str(bill["Id"]),
         "doc_number": bill.get("DocNumber"),
@@ -364,8 +388,8 @@ def transform_bill(bill):
         "due_date": bill.get("DueDate"),
         "total_amt": bill.get("TotalAmt"),
         "balance": bill.get("Balance"),
-        "home_total_amt": bill.get("HomeTotalAmt"),
-        "home_balance": bill.get("HomeBalance"),
+        "home_total_amt": home_total,        # ← was bill.get("HomeTotalAmt")
+        "home_balance": home_balance,         # ← was bill.get("HomeBalance")
         "vendor_id": safe_get(bill, "VendorRef", "value"),
         "vendor_name": safe_get(bill, "VendorRef", "name"),
         "ap_account_id": safe_get(bill, "APAccountRef", "value"),
@@ -386,13 +410,18 @@ def transform_estimate(est):
     bill_addr = extract_address(est.get("BillAddr"))
     ship_addr = extract_address(est.get("ShipAddr"))
 
+    # ── FIX: Same home-currency NULL issue (see transform_invoice)
+    home_total = est.get("HomeTotalAmt")
+    if home_total is None:
+        home_total = est.get("TotalAmt")
+
     return {
         "qbo_id": str(est["Id"]),
         "doc_number": est.get("DocNumber"),
         "txn_date": est.get("TxnDate"),
         "expiration_date": est.get("ExpirationDate"),
         "total_amt": est.get("TotalAmt"),
-        "home_total_amt": est.get("HomeTotalAmt"),
+        "home_total_amt": home_total,        # ← was est.get("HomeTotalAmt")
         "customer_id": safe_get(est, "CustomerRef", "value"),
         "customer_name": safe_get(est, "CustomerRef", "name"),
         "bill_addr_line1": bill_addr.get("line1"),
